@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>College Inventory App</title>
+    <!-- Linking the external CSS file with a version number to bust the cache -->
+    <link rel="stylesheet" href="style.css?v=1.1">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js?v=1.1"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Raleway:wght@700&family=Merriweather:wght@400;700&display=swap');
+        body { font-family: 'Merriweather', serif; }
+        .header-font { font-family: 'Raleway', sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <!-- The script below contains the React application code. -->
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Custom, self-contained SVG icon components
+        const Fan = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M10 8.873a4 4 0 1 0 5.245 5.245" />
+                <path d="M12 12L2 2" />
+                <path d="M12 12L2 22" />
+                <path d="M12 12l10 10" />
+                <path d="M12 12l-1.321 8.679" />
+                <path d="M12 12l8.679-1.321" />
+            </svg>
+        );
+
+        const Cloud = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M17.5 18a7 7 0 1 0 0-14" />
+                <path d="M14 13a5 5 0 1 0 0-10" />
+                <path d="M9.5 21a6 6 0 1 0 0-12" />
+            </svg>
+        );
+
+        const Loader2 = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+        );
+
+        // This is a minimal set of components to be self-contained in a single file.
+        const Card = ({ className, ...props }) => (
+          <div className={`rounded-xl border bg-white text-card-foreground shadow ${className}`} {...props} />
+        );
+        const CardHeader = ({ className, ...props }) => (
+          <div className={`flex flex-col space-y-1.5 p-6 ${className}`} {...props} />
+        );
+        const CardTitle = ({ className, ...props }) => (
+          <h3 className={`text-2xl font-semibold leading-none tracking-tight ${className}`} {...props} />
+        );
+        const CardDescription = ({ className, ...props }) => (
+          <p className={`text-sm text-muted-foreground ${className}`} {...props} />
+        );
+        const CardContent = ({ className, ...props }) => (
+          <div className={`p-6 pt-0 ${className}`} {...props} />
+        );
+
+        // This is the core application logic.
+        const App = () => {
+          // State to hold the full inventory data, the selected item, and loading status.
+          const [inventory, setInventory] = useState(null);
+          const [selectedItem, setSelectedItem] = useState(null);
+          const [isLoading, setIsLoading] = useState(true);
+          const [error, setError] = useState(null);
+
+          // This useEffect hook runs once when the component mounts.
+          // It's responsible for fetching the data from the Google Sheet and
+          // parsing the URL for a specific asset ID.
+          useEffect(() => {
+            const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTKobFwtYisWy2rthSlulMKz58izHff6DV_G2v6YeNHAVur-wugvpZXOWy-BTSgZ1r8DbY7tDNFOYk-/pub?gid=0&single=true&output=csv';
+
+            const fetchData = async () => {
+              try {
+                const response = await fetch(googleSheetUrl);
+                if (!response.ok) {
+                  throw new Error(`Failed to fetch inventory data. Server responded with status: ${response.status}. This can happen if the Google Sheet URL is incorrect or not properly published to the web as a CSV.`);
+                }
+
+                const text = await response.text();
+
+                // Log the raw text to the console for debugging
+                console.log('--- Raw data from Google Sheet ---');
+                console.log(text);
+                console.log('--- End of raw data ---');
+
+                // Check if the response is empty or invalid
+                if (!text || text.trim() === '') {
+                  throw new Error('Received an empty response from the Google Sheet URL. Please ensure it is published correctly and contains data.');
+                }
+                
+                // Split the text into lines and filter out any completely empty ones.
+                const lines = text.split('\n').filter(line => line.trim() !== '');
+
+                // Log the lines array to the console for debugging
+                console.log('--- Parsed lines ---');
+                console.log(lines);
+                console.log('--- End of parsed lines ---');
+
+                const headers = lines[0].split(',').map(header => header.trim().toLowerCase());
+                
+                if (headers.length < 1 || !headers[0].startsWith('id')) {
+                    throw new Error('The data does not appear to be a valid CSV. Please ensure the first column is "id" and the sheet is published correctly.');
+                }
+
+                const parsedData = lines.slice(1).map(line => {
+                  const values = line.split(',');
+                  let item = {};
+                  headers.forEach((header, index) => {
+                    // Gracefully handle missing data to prevent errors
+                    item[header] = values[index] ? values[index].trim() : '';
+                  });
+                  return item;
+                });
+
+                setInventory(parsedData);
+
+                // Check for an 'id' query parameter in the URL.
+                const urlParams = new URLSearchParams(window.location.search);
+                const id = urlParams.get('id');
+
+                if (id && parsedData) {
+                  const foundItem = parsedData.find(item => item.id === id);
+                  if (foundItem) {
+                    setSelectedItem(foundItem);
+                  } else {
+                    setError(`Asset with ID "${id}" not found.`);
+                  }
+                }
+              } catch (e) {
+                console.error(e);
+                setError(e.message);
+              } finally {
+                setIsLoading(false);
+              }
+            };
+
+            fetchData();
+          }, []); // Empty dependency array ensures this runs only once.
+
+          // Conditional rendering for the different views of the app.
+          // The primary view is the single item detail page.
+          const renderContent = () => {
+            if (isLoading) {
+              return (
+                <div className="flex flex-col items-center justify-center h-screen">
+                  <Loader2 className="h-10 w-10 animate-spin text-gray-500" />
+                  <p className="mt-4 text-lg text-gray-700">Loading inventory data...</p>
+                </div>
+              );
+            }
+
+            if (error) {
+              return (
+                <div className="flex flex-col items-center justify-center h-screen p-4 text-center">
+                  <h1 className="text-4xl font-bold text-red-600">Error</h1>
+                  <p className="mt-4 text-xl text-red-500">{error}</p>
+                </div>
+              );
+            }
+
+            if (selectedItem) {
+              return (
+                <div className="p-4 md:p-8 lg:p-12">
+                  <Card className="max-w-2xl mx-auto border-4 border-gray-100 dark:border-gray-800">
+                    <CardHeader className="bg-gray-100 dark:bg-gray-800 rounded-t-xl flex flex-row items-center justify-between">
+                      <div className="flex items-center space-x-4">
+                        <img
+                          src="https://raw.githubusercontent.com/AbeShinto/Fan-Inventory-App/refs/heads/logo-test/CCA_brand-logo-college_seal-classic-black.svg"
+                          alt="College Logo"
+                          className="h-10 w-10 object-contain"
+                          onError={(e) => {
+                            e.target.onerror = null; // prevents infinite loop
+                            e.target.src = 'https://placehold.co/40x40/cccccc/333333?text=Logo';
+                          }}
+                        />
+                        <div>
+                          <CardTitle className="text-gray-900 dark:text-gray-100">Asset ID: {selectedItem.id}</CardTitle>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="mt-6 space-y-4 text-gray-700 dark:text-gray-300">
+                      <p>
+                        <span className="font-semibold text-gray-900 dark:text-gray-100">Type:</span> {selectedItem.type}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-gray-900 dark:text-gray-100">Building:</span> {selectedItem.building}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-gray-900 dark:text-gray-100">Room:</span> {selectedItem.room}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-gray-900 dark:text-gray-100">State:</span> {selectedItem.state}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+              );
+            }
+
+            // This is the default view if no ID is provided.
+            return (
+              <div className="flex flex-col items-center justify-center p-4 text-center">
+                <p className="mt-4 text-xl text-white max-w-xl">
+                  This app is designed to display details for a specific asset.
+                  Please scan an NFC tag or manually add `?id=[asset_id]` to the URL to view an item.
+                </p>
+                <p className="mt-2 text-lg text-white">
+                  Example: `your-app-url?id=FAN001`
+                </p>
+              </div>
+            );
+          };
+
+          return (
+            <div className="min-h-screen text-gray-900 dark:text-gray-100 flex flex-col items-center app-bg">
+                <h1 className="text-5xl font-extrabold text-white mt-8 mb-8 header-font p-4 w-full text-center header-bg">CCA Facilities Inventory</h1>
+                <div className="flex-grow flex flex-col items-center justify-center w-full">
+                    {renderContent()}
+                </div>
+                <div className="text-lg text-gray-800 header-font p-4 w-full text-center mt-auto footer-bg">
+                    Link or Item number not working? TESSSSSST email us at <a href="https://tickets.cca.edu" className="font-bold text-white hover:underline">Support Ticket Site</a>
+                </div>
+            </div>
+          );
+        };
+
+
+        // This is the standard entry point for a React app.
+        // It initializes the React DOM and renders the App component.
+        window.onload = function() {
+            try {
+                const container = document.getElementById('root');
+                if (container) {
+                    const root = ReactDOM.createRoot(container);
+                    root.render(
+                        <React.StrictMode>
+                            <App />
+                        </React.StrictMode>
+                    );
+                } else {
+                    console.error('Root element not found. React app cannot mount.');
+                }
+            } catch (e) {
+                console.error('Error rendering React app:', e);
+                // You could display a user-friendly error message here if needed
+            }
+        };
+    </script>
+</body>
+</html>
